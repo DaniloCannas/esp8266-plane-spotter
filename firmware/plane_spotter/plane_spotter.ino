@@ -82,8 +82,8 @@ uint32_t lastScreenSwap  = 0;
 uint32_t lastPoll        = 0;
 bool     firstFetchDone  = false;
 
-const uint8_t  NUM_SCREENS    = 3;
-const uint32_t SCREEN_SWAP_MS = 5000;
+const uint8_t  NUM_SCREENS    = 4;
+const uint32_t SCREEN_SWAP_MS = 7000;
 
 // ---------------------------------------------------------------------------
 // Geo helpers
@@ -304,6 +304,37 @@ void drawArrow(int cx, int cy, int r, double angleDeg) {
   u8g2.drawLine(tx, ty, tx + (int)(sin(right) * (r / 2)), ty - (int)(cos(right) * (r / 2)));
 }
 
+// Small top-view plane silhouette centred at (cx,cy).
+void drawPlaneTop(int cx, int cy) {
+  u8g2.drawVLine(cx, cy - 3, 8);      // fuselage
+  u8g2.drawHLine(cx - 4, cy - 1, 9);  // main wings
+  u8g2.drawHLine(cx - 2, cy + 3, 5);  // tailplane
+}
+
+// WiFi signal bars (0..4), bottom-aligned at baseline y, growing right.
+void drawSignalBars(int x, int y, int rssi) {
+  int bars = 0;
+  if (rssi >= -55)      bars = 4;
+  else if (rssi >= -65) bars = 3;
+  else if (rssi >= -75) bars = 2;
+  else if (rssi >= -85) bars = 1;
+  for (int i = 0; i < 4; i++) {
+    int h = 2 + i * 2;
+    if (i < bars) u8g2.drawBox(x + i * 3, y - h, 2, h);
+    else          u8g2.drawFrame(x + i * 3, y - h, 2, h);
+  }
+}
+
+// Page indicator dots in the top-right corner.
+void drawPageDots(int current) {
+  int x0 = 128 - NUM_SCREENS * 5 - 1;
+  for (int i = 0; i < NUM_SCREENS; i++) {
+    int cx = x0 + i * 5;
+    if (i == current) u8g2.drawBox(cx, 1, 3, 3);
+    else              u8g2.drawFrame(cx, 1, 3, 3);
+  }
+}
+
 void screenNearest() {
   drawHeader("NEAREST AIRCRAFT");
 
@@ -331,11 +362,23 @@ void screenNearest() {
   }
 
   // heading arrow + speed on the right
-  drawArrow(112, 34, 12, nearest.trackDeg);
+  drawArrow(110, 34, 11, nearest.trackDeg);
   snprintf(line, sizeof(line), "%.0f", nearest.velocityMs * 3.6); // km/h
   u8g2.setFont(u8g2_font_4x6_tr);
-  u8g2.drawStr(100, 56, line);
-  u8g2.drawStr(100, 63, "km/h");
+  u8g2.drawStr(98, 56, line);
+  u8g2.drawStr(98, 63, "km/h");
+
+  // altitude gauge on the far-right column (0..FL400)
+  const int gT = 14, gB = 50;
+  u8g2.drawFrame(125, gT, 3, gB - gT);
+  if (!nearest.onGround) {
+    float fl = nearest.altitudeM * 3.28084f / 100.0f;
+    float fr = fl / 400.0f;
+    if (fr > 1) fr = 1;
+    if (fr < 0) fr = 0;
+    int fh = (int)((gB - gT - 2) * fr);
+    u8g2.drawBox(126, gB - 1 - fh, 1, fh);
+  }
 }
 
 void screenDetails() {
@@ -360,8 +403,94 @@ void screenDetails() {
   u8g2.drawStr(0, 60, line);
 }
 
+// Pseudo-3D view of where the aircraft sits relative to the wall the device is
+// mounted on. The wall faces WALL_HEADING_DEG; we draw a perspective floor and
+// place the plane by relative azimuth (left/right), distance (depth) and
+// elevation (height, with a stem + ground shadow for depth).
+void screen3DWall() {
+  drawHeader("3D SKY VIEW");
+
+  // perspective floor trapezoid
+  const int nearY = 60, farY = 27;
+  const int nLx = 6,  nRx = 122;   // near (front, wide) edge
+  const int fLx = 47, fRx = 81;    // far (horizon, narrow) edge
+  u8g2.drawLine(nLx, nearY, fLx, farY);
+  u8g2.drawLine(nRx, nearY, fRx, farY);
+  u8g2.drawLine(fLx, farY, fRx, farY);
+  for (int k = 1; k <= 3; k++) {            // depth lines
+    float d = k / 4.0f;
+    int lx = nLx + (int)((fLx - nLx) * d);
+    int rx = nRx + (int)((fRx - nRx) * d);
+    int yy = nearY + (int)((farY - nearY) * d);
+    u8g2.drawLine(lx, yy, rx, yy);
+  }
+  for (int k = 1; k <= 4; k++) {            // azimuth lines
+    float u = k / 5.0f;
+    int nx = nLx + (int)((nRx - nLx) * u);
+    int fx = fLx + (int)((fRx - fLx) * u);
+    u8g2.drawLine(nx, nearY, fx, farY);
+  }
+
+  // the wall + the device on it + heading label
+  u8g2.drawBox(nLx, nearY + 1, nRx - nLx, 2);
+  int devx = (nLx + nRx) / 2;
+  u8g2.drawBox(devx - 1, nearY - 1, 3, 3);
+  u8g2.setFont(u8g2_font_4x6_tr);
+  char wl[12];
+  snprintf(wl, sizeof(wl), "WALL %d %s", (int)WALL_HEADING_DEG, compass((double)WALL_HEADING_DEG));
+  u8g2.drawStr(2, 63, wl);
+
+  if (!nearest.valid) {
+    u8g2.setFont(u8g2_font_5x7_tr);
+    u8g2.drawStr(36, 18, "waiting...");
+    return;
+  }
+
+  // relative azimuth: 0 = straight out from wall, + = right, - = left
+  double relAz = nearest.bearingDeg - (double)WALL_HEADING_DEG;
+  while (relAz > 180)   relAz -= 360;
+  while (relAz <= -180) relAz += 360;
+  bool behind = fabs(relAz) > 90.0;
+
+  double azC = relAz;
+  if (azC > 90)  azC = 90;
+  if (azC < -90) azC = -90;
+  float u = (float)((azC + 90.0) / 180.0);          // 0 left .. 1 right
+  float dd = (float)(nearest.distanceKm / 120.0);   // 0 near .. 1 far
+  if (dd > 1) dd = 1;
+  if (dd < 0) dd = 0;
+
+  int lx = nLx + (int)((fLx - nLx) * dd);
+  int rx = nRx + (int)((fRx - nRx) * dd);
+  int gy = nearY + (int)((farY - nearY) * dd);
+  int gx = lx + (int)((rx - lx) * u);
+
+  double horizM = nearest.distanceKm * 1000.0;
+  double elev = rad2deg(atan2((double)nearest.altitudeM, horizM > 1 ? horizM : 1));
+  int lift = (int)((elev / 60.0) * 30.0 * (1.0 - 0.4 * dd));
+  if (lift > 32) lift = 32;
+  if (lift < 2)  lift = 2;
+  int py = gy - lift;
+  if (py < farY - 3) py = farY - 3;
+
+  u8g2.drawEllipse(gx, gy, 3, 1);   // ground shadow
+  u8g2.drawLine(gx, gy, gx, py);    // height stem
+  drawPlaneTop(gx, py);
+
+  // info line in the sky region
+  u8g2.setFont(u8g2_font_5x7_tr);
+  u8g2.drawStr(2, 18, nearest.callsign);
+  char info[16];
+  snprintf(info, sizeof(info), "%s%d EL%d", relAz >= 0 ? "R" : "L", (int)fabs(relAz), (int)elev);
+  u8g2.drawStr(126 - u8g2.getStrWidth(info), 18, info);
+  if (behind) {
+    u8g2.setFont(u8g2_font_4x6_tr);
+    u8g2.drawStr(40, 25, "(behind wall)");
+  }
+}
+
 void screenStats() {
-  drawHeader("NERD STATS");
+  drawHeader("STATISTICS");
   u8g2.setFont(u8g2_font_5x7_tr);
 
   char line[32];
@@ -382,9 +511,10 @@ void screenStats() {
   snprintf(line, sizeof(line), "Req ok/err: %lu/%lu", stats.requestsOk, stats.requestsFail);
   u8g2.drawStr(0, 50, line);
 
-  snprintf(line, sizeof(line), "RSSI %ddBm Heap %dk",
+  drawSignalBars(0, 60, WiFi.RSSI());
+  snprintf(line, sizeof(line), "%ddBm  heap %dk",
            WiFi.RSSI(), ESP.getFreeHeap() / 1024);
-  u8g2.drawStr(0, 60, line);
+  u8g2.drawStr(16, 60, line);
 }
 
 void render() {
@@ -392,8 +522,10 @@ void render() {
   switch (screen) {
     case 0: screenNearest(); break;
     case 1: screenDetails(); break;
-    case 2: screenStats();   break;
+    case 2: screen3DWall();  break;
+    case 3: screenStats();   break;
   }
+  drawPageDots(screen);
   u8g2.sendBuffer();
 }
 

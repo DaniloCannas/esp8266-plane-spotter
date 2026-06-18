@@ -24,6 +24,10 @@
 // How often to poll OpenSky, in milliseconds (be gentle with the free API).
 #define UPDATE_INTERVAL_MS  30000
 
+// Compass heading (deg, 0=N 90=E 180=S 270=W) that the wall / device faces.
+// Used by the 3D SKY VIEW screen to place the aircraft relative to the wall.
+#define WALL_HEADING_DEG  194
+
 // ---- OpenSky account (optional) ------------------------------------------
 // Leave both empty for anonymous access (lower rate limit). A free account
 // at https://opensky-network.org/ gives you many more daily requests.

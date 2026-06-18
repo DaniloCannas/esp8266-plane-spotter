@@ -12,16 +12,24 @@ Default home location is the **centre of Pinerolo (TO), Italy** — change it in
 
 ## What it shows
 
-The display cycles through three screens every 5 seconds:
+The display cycles through four screens every 7 seconds (page dots in the
+top-right corner show which one you're on):
 
 1. **Nearest aircraft** — callsign, distance + compass direction from home,
    altitude (metres and flight level), a little arrow pointing in the aircraft's
-   direction of travel, and ground speed.
+   direction of travel, ground speed, and a vertical altitude gauge.
 2. **Flight details** — ICAO24 hex address, country of registration, true
    track, vertical rate (climb/descent), and live lat/lon.
-3. **Nerd stats** — uptime, aircraft in view (current & session max), closest
-   approach this session, OpenSky request ok/error counters, WiFi RSSI and free
-   heap.
+3. **3D sky view** — a pseudo-3D perspective of where the aircraft is relative
+   to the **wall the device is mounted on**. Set `WALL_HEADING_DEG` to the
+   compass heading the wall faces; the plane is then placed by relative azimuth
+   (left/right of the wall), distance (depth into the scene) and elevation
+   (height above the floor, drawn with a stem and ground shadow). `Rxx`/`Lxx` is
+   the angle right/left of the wall, `ELxx` the elevation angle; planes behind
+   the wall are flagged `(behind wall)`.
+4. **Statistics** — uptime, aircraft in view (current & session max), closest
+   approach this session, OpenSky request ok/error counters, WiFi signal bars +
+   RSSI and free heap.
 
 Data refreshes every 30 seconds (configurable).
 
@@ -105,6 +113,7 @@ private). Key options:
 | `HOME_LAT` / `HOME_LON` | Your home coordinates (default: Pinerolo) |
 | `SEARCH_RADIUS_DEG` | Half-size of the sky box to query (~1.0° ≈ 111 km) |
 | `UPDATE_INTERVAL_MS` | Poll period for OpenSky |
+| `WALL_HEADING_DEG` | Compass heading the wall/device faces (used by the 3D view) |
 | `OPENSKY_USER` / `OPENSKY_PASS` | Optional free account for higher rate limits |
 
 ---
