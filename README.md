@@ -15,23 +15,25 @@ Default home location is the **centre of Pinerolo (TO), Italy** — change it in
 The display cycles through four screens every 7 seconds (page dots in the
 top-right corner show which one you're on):
 
-1. **Nearest aircraft** — callsign, distance + compass direction from home,
-   altitude (metres and flight level), a little arrow pointing in the aircraft's
-   direction of travel, ground speed, and a vertical altitude gauge.
+1. **Nearest aircraft** — callsign, a type icon, distance + compass direction
+   from home, altitude (metres and flight level), an arrow pointing in the
+   aircraft's direction of travel, ground speed, and a vertical altitude gauge.
 2. **Flight details** — ICAO24 hex address, country of registration, true
    track, vertical rate (climb/descent), and live lat/lon.
-3. **3D sky view** — a pseudo-3D perspective of where the aircraft is relative
-   to the **wall the device is mounted on**. Set `WALL_HEADING_DEG` to the
-   compass heading the wall faces; the plane is then placed by relative azimuth
-   (left/right of the wall), distance (depth into the scene) and elevation
-   (height above the floor, drawn with a stem and ground shadow). `Rxx`/`Lxx` is
-   the angle right/left of the wall, `ELxx` the elevation angle; planes behind
-   the wall are flagged `(behind wall)`.
+3. **Radar** — a North-up PPI radar with your home at the centre, range rings
+   (outer ring = 120 km), a rotating sweep, and a blip for every aircraft in
+   view. The nearest is highlighted and detailed in the side panel (type icon,
+   callsign, distance, flight level, contact count). A small tick outside the
+   ring marks the direction the wall faces (`WALL_HEADING_DEG`).
 4. **Statistics** — uptime, aircraft in view (current & session max), closest
    approach this session, OpenSky request ok/error counters, WiFi signal bars +
    RSSI and free heap.
 
-Data refreshes every 30 seconds (configurable).
+The **type icon** comes from the OpenSky emitter category (requested with
+`extended=1`): airliner, light/small plane, jet, helicopter, glider, balloon,
+drone, or a generic plane when the category is unknown.
+
+Data refreshes every 60 seconds (configurable — see the rate-limit note below).
 
 ---
 
@@ -113,15 +115,19 @@ private). Key options:
 | `HOME_LAT` / `HOME_LON` | Your home coordinates (default: Pinerolo) |
 | `SEARCH_RADIUS_DEG` | Half-size of the sky box to query (~1.0° ≈ 111 km) |
 | `UPDATE_INTERVAL_MS` | Poll period for OpenSky |
-| `WALL_HEADING_DEG` | Compass heading the wall/device faces (used by the 3D view) |
-| `OPENSKY_USER` / `OPENSKY_PASS` | Optional free account for higher rate limits |
+| `WALL_HEADING_DEG` | Compass heading the wall/device faces (used by the radar wall tick) |
+| `OPENSKY_USER` / `OPENSKY_PASS` | Optional OpenSky account (HTTP basic auth) for a bigger budget |
 
 ---
 
 ## Notes on the OpenSky API
 
-- Anonymous access works but has a **limited daily request budget**. Creating a
-  free account and setting `OPENSKY_USER`/`OPENSKY_PASS` raises the limit.
+- Anonymous access has a **small daily request budget (~400 calls)**, shared
+  per public IP. Polling every 60 s is ~1440 calls/day, so you *will* hit
+  `HTTP 429 Too many requests` and the display will freeze on the last data.
+  For continuous use either raise `UPDATE_INTERVAL_MS` to ~300000 (5 min, stays
+  under the anonymous budget) or use an OpenSky account for a much larger quota.
+  When rate-limited, the firmware keeps showing the last known aircraft.
 - Coverage is community ADS-B, so very low / very local traffic may not always
   appear. A larger `SEARCH_RADIUS_DEG` finds more planes but uses more RAM to
   parse (the ESP8266 only has ~40 KB free heap, so don't go wild).

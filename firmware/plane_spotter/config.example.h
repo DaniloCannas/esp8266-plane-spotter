@@ -21,8 +21,10 @@
 // (but more RAM used; on a quiet sky raise it, if it reboots lower it).
 #define SEARCH_RADIUS_DEG  1.0
 
-// How often to poll OpenSky, in milliseconds (be gentle with the free API).
-#define UPDATE_INTERVAL_MS  30000
+// How often to poll OpenSky, in milliseconds. Anonymous access has a small
+// daily budget (~400 calls): 60 s already exceeds it over 24 h, so for
+// continuous use set OPENSKY_USER/PASS below (a free account = far more calls).
+#define UPDATE_INTERVAL_MS  60000
 
 // Compass heading (deg, 0=N 90=E 180=S 270=W) that the wall / device faces.
 // Used by the 3D SKY VIEW screen to place the aircraft relative to the wall.

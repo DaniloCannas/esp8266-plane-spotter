@@ -60,12 +60,19 @@ struct Aircraft {
   float  trackDeg;    // true track over ground (0 = north)
   float  vrateMs;     // vertical rate in m/s (+climb / -descent)
   bool   onGround;
+  int    category;    // OpenSky emitter category (state index 17, 0 = unknown)
   double distanceKm;  // great-circle distance from home
   double bearingDeg;  // bearing from home to aircraft
   bool   valid;
 };
 
 Aircraft nearest;
+
+// Lightweight positions for every aircraft in view, used by the radar screen.
+struct Blip { float brg; float dist; };
+const uint8_t MAX_BLIPS = 20;
+Blip    blips[MAX_BLIPS];
+uint8_t blipCount = 0;
 
 // Runtime statistics (the nerdy bit)
 struct Stats {
@@ -155,6 +162,7 @@ String buildUrl() {
   url += "&lomin=" + String(lomin, 4);
   url += "&lamax=" + String(lamax, 4);
   url += "&lomax=" + String(lomax, 4);
+  url += "&extended=1";   // include the aircraft category (state index 17)
   return url;
 }
 
@@ -195,9 +203,9 @@ bool fetchAircraft() {
   // 10 true_track, 11 vertical_rate, 13 geo_altitude.
   JsonDocument filter;
   JsonArray el = filter["states"].to<JsonArray>().add<JsonArray>();
-  for (int i = 0; i <= 13; i++) el[i] = false;
+  for (int i = 0; i <= 17; i++) el[i] = false;
   el[0] = el[1] = el[2] = el[5] = el[6] = true;
-  el[7] = el[8] = el[9] = el[10] = el[11] = el[13] = true;
+  el[7] = el[8] = el[9] = el[10] = el[11] = el[13] = el[17] = true;
 
   // OpenSky replies with Transfer-Encoding: chunked. getStream() would hand the
   // raw chunked bytes (hex length markers) to the parser and yield nothing, so
@@ -221,20 +229,29 @@ bool fetchAircraft() {
   best.valid      = false;
   best.distanceKm = 1e9;
   uint16_t count  = 0;
+  blipCount = 0;
 
   for (JsonArray s : states) {
     if (s.isNull() || s[5].isNull() || s[6].isNull()) continue;
     double lon = s[5].as<double>();
     double lat = s[6].as<double>();
     double d   = haversineKm(HOME_LAT, HOME_LON, lat, lon);
+    double brg = bearingDeg(HOME_LAT, HOME_LON, lat, lon);
     count++;
+
+    if (blipCount < MAX_BLIPS) {
+      blips[blipCount].brg  = brg;
+      blips[blipCount].dist = d;
+      blipCount++;
+    }
 
     if (d < best.distanceKm) {
       best.distanceKm = d;
       best.lat        = lat;
       best.lon        = lon;
-      best.bearingDeg = bearingDeg(HOME_LAT, HOME_LON, lat, lon);
+      best.bearingDeg = brg;
       best.onGround   = s[8] | false;
+      best.category   = s[17] | 0;
 
       // geo altitude (13) preferred, fall back to barometric (7)
       best.altitudeM  = s[13].isNull() ? (s[7] | 0.0f) : s[13].as<float>();
@@ -271,8 +288,9 @@ bool fetchAircraft() {
   if (nearest.valid && nearest.distanceKm < stats.closestEver)
     stats.closestEver = nearest.distanceKm;
 
-  Serial.printf("[fetch] inView=%u nearest=%s dist=%.1fkm valid=%d heap=%u\n",
-                count, nearest.valid ? nearest.callsign : "-",
+  Serial.printf("[fetch] inView=%u blips=%u nearest=%s cat=%d dist=%.1fkm valid=%d heap=%u\n",
+                count, blipCount, nearest.valid ? nearest.callsign : "-",
+                nearest.valid ? nearest.category : -1,
                 nearest.valid ? nearest.distanceKm : 0.0, nearest.valid,
                 ESP.getFreeHeap());
   return true;
@@ -304,11 +322,66 @@ void drawArrow(int cx, int cy, int r, double angleDeg) {
   u8g2.drawLine(tx, ty, tx + (int)(sin(right) * (r / 2)), ty - (int)(cos(right) * (r / 2)));
 }
 
-// Small top-view plane silhouette centred at (cx,cy).
-void drawPlaneTop(int cx, int cy) {
-  u8g2.drawVLine(cx, cy - 3, 8);      // fuselage
-  u8g2.drawHLine(cx - 4, cy - 1, 9);  // main wings
-  u8g2.drawHLine(cx - 2, cy + 3, 5);  // tailplane
+// Short label for an OpenSky emitter category.
+const char* typeName(int cat) {
+  switch (cat) {
+    case 2:  return "Light";
+    case 3:  return "Small";
+    case 4:  return "Airliner";
+    case 5:  return "Heavy";
+    case 6:  return "Heavy";
+    case 7:  return "Jet";
+    case 8:  return "Heli";
+    case 9:  return "Glider";
+    case 10: return "Balloon";
+    case 14: return "Drone";
+    default: return "Aircraft";
+  }
+}
+
+// Icon (~16x12) for an aircraft type, centred at (cx,cy).
+void drawTypeIcon(int cx, int cy, int cat) {
+  switch (cat) {
+    case 8:  // helicopter
+      u8g2.drawDisc(cx - 1, cy, 2);
+      u8g2.drawHLine(cx - 7, cy - 3, 15);          // main rotor
+      u8g2.drawLine(cx + 1, cy, cx + 7, cy + 1);   // tail boom
+      u8g2.drawVLine(cx + 7, cy - 2, 5);           // tail rotor
+      break;
+    case 9:  // glider (long slim wings)
+      u8g2.drawHLine(cx - 8, cy, 17);
+      u8g2.drawVLine(cx, cy - 2, 7);
+      u8g2.drawHLine(cx - 2, cy + 5, 5);
+      break;
+    case 10: // balloon / lighter-than-air
+      u8g2.drawCircle(cx, cy - 2, 4);
+      u8g2.drawLine(cx - 3, cy + 1, cx - 1, cy + 5);
+      u8g2.drawLine(cx + 3, cy + 1, cx + 1, cy + 5);
+      u8g2.drawFrame(cx - 1, cy + 5, 3, 2);
+      break;
+    case 14: // drone (quadcopter)
+      u8g2.drawBox(cx - 1, cy - 1, 3, 3);
+      u8g2.drawLine(cx - 5, cy - 4, cx + 5, cy + 4);
+      u8g2.drawLine(cx + 5, cy - 4, cx - 5, cy + 4);
+      u8g2.drawCircle(cx - 5, cy - 4, 2);
+      u8g2.drawCircle(cx + 5, cy - 4, 2);
+      u8g2.drawCircle(cx - 5, cy + 4, 2);
+      u8g2.drawCircle(cx + 5, cy + 4, 2);
+      break;
+    case 2:
+    case 3:  // light / small plane (straight wings)
+      u8g2.drawVLine(cx, cy - 4, 10);
+      u8g2.drawHLine(cx - 5, cy - 1, 11);
+      u8g2.drawHLine(cx - 2, cy + 4, 5);
+      break;
+    default: // airliner / generic (swept wings, top view)
+      u8g2.drawVLine(cx, cy - 5, 12);
+      u8g2.drawTriangle(cx, cy - 1, cx - 7, cy + 3, cx - 1, cy + 1);
+      u8g2.drawTriangle(cx, cy - 1, cx + 7, cy + 3, cx + 1, cy + 1);
+      u8g2.drawTriangle(cx, cy + 4, cx - 3, cy + 6, cx - 1, cy + 5);
+      u8g2.drawTriangle(cx, cy + 4, cx + 3, cy + 6, cx + 1, cy + 5);
+      break;
+  }
 }
 
 // WiFi signal bars (0..4), bottom-aligned at baseline y, growing right.
@@ -347,6 +420,9 @@ void screenNearest() {
 
   u8g2.setFont(u8g2_font_7x14B_tr);
   u8g2.drawStr(0, 24, nearest.callsign);
+
+  // aircraft-type icon, between the callsign and the heading arrow
+  drawTypeIcon(82, 16, nearest.category);
 
   u8g2.setFont(u8g2_font_6x12_tr);
   char line[24];
@@ -403,90 +479,86 @@ void screenDetails() {
   u8g2.drawStr(0, 60, line);
 }
 
-// Pseudo-3D view of where the aircraft sits relative to the wall the device is
-// mounted on. The wall faces WALL_HEADING_DEG; we draw a perspective floor and
-// place the plane by relative azimuth (left/right), distance (depth) and
-// elevation (height, with a stem + ground shadow for depth).
-void screen3DWall() {
-  drawHeader("3D SKY VIEW");
+// North-up radar (PPI) view. Home/device sits at the centre, range rings show
+// distance, a sweep line rotates, and every aircraft in view is a blip. The
+// nearest is highlighted and detailed (with a type icon) in the side panel.
+// A tick on the ring marks the direction the wall faces (WALL_HEADING_DEG).
+void screenRadar() {
+  drawHeader("RADAR");
 
-  // perspective floor trapezoid
-  const int nearY = 60, farY = 27;
-  const int nLx = 6,  nRx = 122;   // near (front, wide) edge
-  const int fLx = 47, fRx = 81;    // far (horizon, narrow) edge
-  u8g2.drawLine(nLx, nearY, fLx, farY);
-  u8g2.drawLine(nRx, nearY, fRx, farY);
-  u8g2.drawLine(fLx, farY, fRx, farY);
-  for (int k = 1; k <= 3; k++) {            // depth lines
-    float d = k / 4.0f;
-    int lx = nLx + (int)((fLx - nLx) * d);
-    int rx = nRx + (int)((fRx - nRx) * d);
-    int yy = nearY + (int)((farY - nearY) * d);
-    u8g2.drawLine(lx, yy, rx, yy);
-  }
-  for (int k = 1; k <= 4; k++) {            // azimuth lines
-    float u = k / 5.0f;
-    int nx = nLx + (int)((nRx - nLx) * u);
-    int fx = fLx + (int)((fRx - fLx) * u);
-    u8g2.drawLine(nx, nearY, fx, farY);
-  }
+  const int cx = 31, cy = 36, R = 24;   // radar circle
+  const float MAX_KM = 120.0f;          // outer ring range
 
-  // the wall + the device on it + heading label
-  u8g2.drawBox(nLx, nearY + 1, nRx - nLx, 2);
-  int devx = (nLx + nRx) / 2;
-  u8g2.drawBox(devx - 1, nearY - 1, 3, 3);
+  // range rings + axes
+  u8g2.drawCircle(cx, cy, R);
+  u8g2.drawCircle(cx, cy, (R * 2) / 3);
+  u8g2.drawCircle(cx, cy, R / 3);
+  u8g2.drawHLine(cx - R, cy, 2 * R + 1);
+  u8g2.drawVLine(cx, cy - R, 2 * R + 1);
+  u8g2.drawDisc(cx, cy, 1);             // home/device
+
   u8g2.setFont(u8g2_font_4x6_tr);
-  char wl[12];
-  snprintf(wl, sizeof(wl), "WALL %d %s", (int)WALL_HEADING_DEG, compass((double)WALL_HEADING_DEG));
-  u8g2.drawStr(2, 63, wl);
+  u8g2.drawStr(cx - 1, cy - R - 1, "N");
 
+  // wall-facing direction marker just outside the ring
+  {
+    double a = deg2rad((double)WALL_HEADING_DEG);
+    int wx = cx + (int)(sin(a) * (R + 2));
+    int wy = cy - (int)(cos(a) * (R + 2));
+    u8g2.drawDisc(wx, wy, 1);
+  }
+
+  // rotating sweep
+  double sweep = deg2rad((double)((millis() / 16) % 360));
+  u8g2.drawLine(cx, cy, cx + (int)(sin(sweep) * R), cy - (int)(cos(sweep) * R));
+
+  // all blips as dots
+  for (uint8_t i = 0; i < blipCount; i++) {
+    float fr = blips[i].dist / MAX_KM;
+    if (fr > 1) fr = 1;
+    int rr = (int)(fr * R);
+    double a = deg2rad((double)blips[i].brg);
+    u8g2.drawPixel(cx + (int)(sin(a) * rr), cy - (int)(cos(a) * rr));
+  }
+
+  // highlight the nearest aircraft
+  if (nearest.valid) {
+    float fr = (float)(nearest.distanceKm / MAX_KM);
+    if (fr > 1) fr = 1;
+    int rr = (int)(fr * R);
+    double a = deg2rad(nearest.bearingDeg);
+    int bx = cx + (int)(sin(a) * rr);
+    int by = cy - (int)(cos(a) * rr);
+    u8g2.drawDisc(bx, by, 1);
+    u8g2.drawCircle(bx, by, 3);
+  }
+
+  // side info panel
+  const int px = 62;
   if (!nearest.valid) {
     u8g2.setFont(u8g2_font_5x7_tr);
-    u8g2.drawStr(36, 18, "waiting...");
+    u8g2.drawStr(px, 30, "no contacts");
+    u8g2.setFont(u8g2_font_4x6_tr);
+    u8g2.drawStr(4, 63, "range 120km");
     return;
   }
 
-  // relative azimuth: 0 = straight out from wall, + = right, - = left
-  double relAz = nearest.bearingDeg - (double)WALL_HEADING_DEG;
-  while (relAz > 180)   relAz -= 360;
-  while (relAz <= -180) relAz += 360;
-  bool behind = fabs(relAz) > 90.0;
-
-  double azC = relAz;
-  if (azC > 90)  azC = 90;
-  if (azC < -90) azC = -90;
-  float u = (float)((azC + 90.0) / 180.0);          // 0 left .. 1 right
-  float dd = (float)(nearest.distanceKm / 120.0);   // 0 near .. 1 far
-  if (dd > 1) dd = 1;
-  if (dd < 0) dd = 0;
-
-  int lx = nLx + (int)((fLx - nLx) * dd);
-  int rx = nRx + (int)((fRx - nRx) * dd);
-  int gy = nearY + (int)((farY - nearY) * dd);
-  int gx = lx + (int)((rx - lx) * u);
-
-  double horizM = nearest.distanceKm * 1000.0;
-  double elev = rad2deg(atan2((double)nearest.altitudeM, horizM > 1 ? horizM : 1));
-  int lift = (int)((elev / 60.0) * 30.0 * (1.0 - 0.4 * dd));
-  if (lift > 32) lift = 32;
-  if (lift < 2)  lift = 2;
-  int py = gy - lift;
-  if (py < farY - 3) py = farY - 3;
-
-  u8g2.drawEllipse(gx, gy, 3, 1);   // ground shadow
-  u8g2.drawLine(gx, gy, gx, py);    // height stem
-  drawPlaneTop(gx, py);
-
-  // info line in the sky region
+  drawTypeIcon(px + 7, 19, nearest.category);
   u8g2.setFont(u8g2_font_5x7_tr);
-  u8g2.drawStr(2, 18, nearest.callsign);
-  char info[16];
-  snprintf(info, sizeof(info), "%s%d EL%d", relAz >= 0 ? "R" : "L", (int)fabs(relAz), (int)elev);
-  u8g2.drawStr(126 - u8g2.getStrWidth(info), 18, info);
-  if (behind) {
-    u8g2.setFont(u8g2_font_4x6_tr);
-    u8g2.drawStr(40, 25, "(behind wall)");
-  }
+  u8g2.drawStr(px + 18, 20, typeName(nearest.category));
+  u8g2.drawStr(px, 32, nearest.callsign);
+
+  char l[20];
+  snprintf(l, sizeof(l), "%.0fkm %s", nearest.distanceKm, compass(nearest.bearingDeg));
+  u8g2.drawStr(px, 43, l);
+  if (nearest.onGround) snprintf(l, sizeof(l), "on ground");
+  else snprintf(l, sizeof(l), "FL%03.0f", nearest.altitudeM * 3.28084 / 100.0);
+  u8g2.drawStr(px, 54, l);
+
+  u8g2.setFont(u8g2_font_4x6_tr);
+  snprintf(l, sizeof(l), "%u contacts", blipCount);
+  u8g2.drawStr(px, 63, l);
+  u8g2.drawStr(4, 63, "120km");
 }
 
 void screenStats() {
@@ -522,7 +594,7 @@ void render() {
   switch (screen) {
     case 0: screenNearest(); break;
     case 1: screenDetails(); break;
-    case 2: screen3DWall();  break;
+    case 2: screenRadar();   break;
     case 3: screenStats();   break;
   }
   drawPageDots(screen);
