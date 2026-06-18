@@ -137,6 +137,8 @@ void connectWiFi() {
     delay(400);
     dots++;
   }
+  Serial.printf("\n[wifi] connected SSID=%s IP=%s RSSI=%d\n",
+                WIFI_SSID, WiFi.localIP().toString().c_str(), WiFi.RSSI());
 }
 
 // ---------------------------------------------------------------------------
@@ -159,12 +161,18 @@ String buildUrl() {
 // Pulls aircraft states, keeps the nearest one. Returns true on success.
 bool fetchAircraft() {
   WiFiClientSecure client;
-  client.setInsecure();                 // OpenSky uses a valid cert; we skip
-  client.setBufferSizes(512, 512);      // keep TLS RAM usage low on ESP8266
+  client.setInsecure();                 // skip cert validation (read-only data)
+  // Do NOT shrink the RX buffer below the default 16 KB: OpenSky does not
+  // negotiate a smaller TLS fragment (no MFLN), so a small RX buffer makes the
+  // TLS handshake fail and every fetch silently returns "no aircraft".
+  client.setBufferSizes(16384, 512);
 
   HTTPClient https;
   https.setReuse(false);
-  if (!https.begin(client, buildUrl())) {
+  String url = buildUrl();
+  Serial.printf("[fetch] heap=%u GET %s\n", ESP.getFreeHeap(), url.c_str());
+  if (!https.begin(client, url)) {
+    Serial.println("[fetch] https.begin() failed");
     stats.requestsFail++;
     return false;
   }
@@ -174,6 +182,7 @@ bool fetchAircraft() {
   }
 
   int code = https.GET();
+  Serial.printf("[fetch] HTTP %d\n", code);
   if (code != HTTP_CODE_OK) {
     https.end();
     stats.requestsFail++;
@@ -190,12 +199,19 @@ bool fetchAircraft() {
   el[0] = el[1] = el[2] = el[5] = el[6] = true;
   el[7] = el[8] = el[9] = el[10] = el[11] = el[13] = true;
 
+  // OpenSky replies with Transfer-Encoding: chunked. getStream() would hand the
+  // raw chunked bytes (hex length markers) to the parser and yield nothing, so
+  // we use getString(), which de-chunks the body before we parse it.
+  String payload = https.getString();
+  https.end();
+  Serial.printf("[fetch] payload=%u bytes\n", payload.length());
+
   JsonDocument doc;
   DeserializationError err = deserializeJson(
-      doc, https.getStream(), DeserializationOption::Filter(filter));
-  https.end();
+      doc, payload, DeserializationOption::Filter(filter));
 
   if (err) {
+    Serial.printf("[fetch] JSON error: %s\n", err.c_str());
     stats.requestsFail++;
     return false;
   }
@@ -255,6 +271,10 @@ bool fetchAircraft() {
   if (nearest.valid && nearest.distanceKm < stats.closestEver)
     stats.closestEver = nearest.distanceKm;
 
+  Serial.printf("[fetch] inView=%u nearest=%s dist=%.1fkm valid=%d heap=%u\n",
+                count, nearest.valid ? nearest.callsign : "-",
+                nearest.valid ? nearest.distanceKm : 0.0, nearest.valid,
+                ESP.getFreeHeap());
   return true;
 }
 
