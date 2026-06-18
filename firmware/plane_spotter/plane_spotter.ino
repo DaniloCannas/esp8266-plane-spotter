@@ -184,13 +184,13 @@ bool fetchAircraft() {
   // OpenSky state indices: 0 icao24, 1 callsign, 2 origin_country,
   // 5 longitude, 6 latitude, 7 baro_altitude, 8 on_ground, 9 velocity,
   // 10 true_track, 11 vertical_rate, 13 geo_altitude.
-  StaticJsonDocument<256> filter;
-  JsonArray el = filter["states"].createNestedArray();
+  JsonDocument filter;
+  JsonArray el = filter["states"].to<JsonArray>().add<JsonArray>();
   for (int i = 0; i <= 13; i++) el[i] = false;
   el[0] = el[1] = el[2] = el[5] = el[6] = true;
   el[7] = el[8] = el[9] = el[10] = el[11] = el[13] = true;
 
-  DynamicJsonDocument doc(16384);
+  JsonDocument doc;
   DeserializationError err = deserializeJson(
       doc, https.getStream(), DeserializationOption::Filter(filter));
   https.end();

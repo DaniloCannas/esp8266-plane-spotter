@@ -16,9 +16,10 @@
 #define HOME_LAT   44.8848
 #define HOME_LON   7.3306
 
-// Half-size of the search box in degrees (~0.6 deg latitude is ~67 km).
-// Smaller = less data to parse on the ESP8266, larger = wider sky coverage.
-#define SEARCH_RADIUS_DEG  0.6
+// Half-size of the search box in degrees (~1.0 deg latitude is ~111 km).
+// Smaller = less data to parse on the ESP8266, larger = wider sky coverage
+// (but more RAM used; on a quiet sky raise it, if it reboots lower it).
+#define SEARCH_RADIUS_DEG  1.0
 
 // How often to poll OpenSky, in milliseconds (be gentle with the free API).
 #define UPDATE_INTERVAL_MS  30000

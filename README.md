@@ -103,7 +103,7 @@ private). Key options:
 |--------|---------|
 | `WIFI_SSID` / `WIFI_PASS` | Your network |
 | `HOME_LAT` / `HOME_LON` | Your home coordinates (default: Pinerolo) |
-| `SEARCH_RADIUS_DEG` | Half-size of the sky box to query (~0.6° ≈ 67 km) |
+| `SEARCH_RADIUS_DEG` | Half-size of the sky box to query (~1.0° ≈ 111 km) |
 | `UPDATE_INTERVAL_MS` | Poll period for OpenSky |
 | `OPENSKY_USER` / `OPENSKY_PASS` | Optional free account for higher rate limits |
 
