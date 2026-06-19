@@ -11,6 +11,12 @@ the [OpenSky Network](https://opensky-network.org/) API; weather from
 Default home location is the **centre of Pinerolo (TO), Italy** — change it in
 `config.h` to point at your own roof.
 
+<p align="center">
+  <img src="docs/images/planespotter.jpg" width="520" alt="Plane Spotter desktop gadget showing the radar screen">
+</p>
+
+<p align="center"><em>The finished gadget in its 3D-printed case, showing the RADAR screen.</em></p>
+
 ---
 
 ## What it shows
@@ -76,6 +82,10 @@ A simple two-part desktop case lives in [`hardware/`](hardware/):
 |------|------|
 | [`hardware/Radar1.stl`](hardware/Radar1.stl) | Case part 1 |
 | [`hardware/radar2.stl`](hardware/radar2.stl) | Case part 2 |
+
+<p align="center">
+  <img src="docs/images/case-render.png" width="460" alt="CAD render of the 3D-printed case">
+</p>
 
 Print both, slot the board + OLED inside, and stand it on your desk. It is
 designed to hang on a wall facing a known compass heading — set that heading in
