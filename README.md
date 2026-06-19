@@ -116,18 +116,27 @@ private). Key options:
 | `SEARCH_RADIUS_DEG` | Half-size of the sky box to query (~1.0° ≈ 111 km) |
 | `UPDATE_INTERVAL_MS` | Poll period for OpenSky |
 | `WALL_HEADING_DEG` | Compass heading the wall/device faces (used by the radar wall tick) |
-| `OPENSKY_USER` / `OPENSKY_PASS` | Optional OpenSky account (HTTP basic auth) for a bigger budget |
+| `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | Optional OpenSky OAuth2 client for a much bigger budget |
 
 ---
 
 ## Notes on the OpenSky API
 
 - Anonymous access has a **small daily request budget (~400 calls)**, shared
-  per public IP. Polling every 60 s is ~1440 calls/day, so you *will* hit
-  `HTTP 429 Too many requests` and the display will freeze on the last data.
-  For continuous use either raise `UPDATE_INTERVAL_MS` to ~300000 (5 min, stays
-  under the anonymous budget) or use an OpenSky account for a much larger quota.
-  When rate-limited, the firmware keeps showing the last known aircraft.
+  per public IP. Polling every 60 s is ~1440 calls/day, so anonymously you
+  *will* hit `HTTP 429 Too many requests` and the display freezes on the last
+  data (the firmware keeps showing the last known aircraft when rate-limited).
+- **Recommended: use an OpenSky account.** Create one, go to *Account → API
+  clients*, create a client, and put the `clientId`/`clientSecret` into
+  `OPENSKY_CLIENT_ID`/`OPENSKY_CLIENT_SECRET`. The firmware then does the OAuth2
+  `client_credentials` flow (token from `auth.opensky-network.org`, sent as a
+  `Bearer` header, auto-refreshed) and gets a far larger quota — 60 s polling
+  works comfortably. Anonymous (no client) still works if you raise
+  `UPDATE_INTERVAL_MS` to ~300000 (5 min).
+- **Aircraft-type icons:** OpenSky's emitter category (state index 17, via
+  `extended=1`) is frequently `0` (unknown) in practice, so when it is missing
+  the firmware estimates the type from altitude + speed and flags it with a
+  leading `~` (e.g. `~Small`). Real category data, when present, is used as-is.
 - Coverage is community ADS-B, so very low / very local traffic may not always
   appear. A larger `SEARCH_RADIUS_DEG` finds more planes but uses more RAM to
   parse (the ESP8266 only has ~40 KB free heap, so don't go wild).

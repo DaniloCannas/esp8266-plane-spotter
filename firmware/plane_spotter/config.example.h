@@ -27,14 +27,24 @@
 #define UPDATE_INTERVAL_MS  60000
 
 // Compass heading (deg, 0=N 90=E 180=S 270=W) that the wall / device faces.
-// Used by the 3D SKY VIEW screen to place the aircraft relative to the wall.
+// Used by the radar screen to mark the wall direction.
 #define WALL_HEADING_DEG  194
 
-// ---- OpenSky account (optional) ------------------------------------------
-// Leave both empty for anonymous access (lower rate limit). A free account
-// at https://opensky-network.org/ gives you many more daily requests.
-#define OPENSKY_USER  ""
-#define OPENSKY_PASS  ""
+// POSIX timezone string for the NTP clock (default: Europe/Rome). See
+// https://github.com/nayarsystems/posix_tz_db for other zones.
+#define TIMEZONE  "CET-1CEST,M3.5.0,M10.5.0/3"
+
+// How often to refresh weather from Open-Meteo (ms). 10 min is plenty.
+#define WEATHER_INTERVAL_MS  600000
+
+// ---- OpenSky OAuth2 client (optional) ------------------------------------
+// Leave both empty for anonymous access (small ~400 calls/day budget). For a
+// much larger quota, create a free account at https://opensky-network.org/,
+// then Account -> API clients -> create a client, and paste the resulting
+// clientId / clientSecret here. The firmware fetches an OAuth2 token and sends
+// it as a Bearer header.
+#define OPENSKY_CLIENT_ID      ""
+#define OPENSKY_CLIENT_SECRET  ""
 
 // ---- OLED wiring (hardware SPI) ------------------------------------------
 // SCK -> GPIO14 (D5) and SDA/MOSI -> GPIO13 (D7) are fixed by HW SPI.
