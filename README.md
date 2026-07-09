@@ -54,12 +54,15 @@ see the rate-limit note below).
 | Part | Notes |
 |------|-------|
 | ESP8266 board | NodeMCU v2/v3, Wemos D1 mini, or similar |
-| 0.96" OLED, **SSD1306**, **4-wire SPI** | 7-pin module: `GND VCC SCK SDA RES DC CS` |
+| 0.96" OLED, **SSD1306** | either the 7-pin **4-wire SPI** module (`GND VCC SCK SDA RES DC CS`) or the 4-pin **I2C** module (`GND VCC SCL SDA`) |
 
 ### Wiring
 
-Hardware SPI is used, so `SCK` and `SDA` are fixed; the other three pins are
-configurable in `config.h`.
+Both SSD1306 module types are supported — set `OLED_USE_I2C` in `config.h` to
+match yours (`false` = SPI, `true` = I2C).
+
+**4-wire SPI module** (`OLED_USE_I2C false`): hardware SPI is used, so `SCK`
+and `SDA` are fixed; the other three pins are configurable in `config.h`.
 
 | OLED pin | ESP8266 (NodeMCU label / GPIO) | Role |
 |----------|-------------------------------|------|
@@ -71,8 +74,43 @@ configurable in `config.h`.
 | DC  | D2 / GPIO4  | Data/Command |
 | CS  | D1 / GPIO5  | Chip select |
 
+**I2C module** (`OLED_USE_I2C true`): hardware I2C on the ESP8266's standard
+I2C pins; both are configurable in `config.h`.
+
+| OLED pin | ESP8266 (NodeMCU label / GPIO) | Role |
+|----------|-------------------------------|------|
+| GND | GND | Ground |
+| VCC | 3V3 | Power |
+| SCL | **D1 / GPIO5** | I2C clock |
+| SDA | **D2 / GPIO4** | I2C data |
+
 > The default pins avoid the ESP8266 boot-strapping pins (GPIO0/2/15), so the
-> board flashes and boots reliably.
+> board flashes and boots reliably. Most I2C SSD1306 modules use address
+> `0x3C` (U8g2's default); if yours is `0x3D`, add
+> `u8g2.setI2CAddress(0x3D * 2);` before `u8g2.begin()`.
+
+
+**Wiring Schema**
+```
+        ESP8266 (NodeMCU)                OLED SSD1306 SPI
+      ┌───────────────────┐            ┌──────────────────┐
+      │ 3V3 ──────────────┼────────────┤ VCC              │
+      │ GND ──────────────┼────────────┤ GND              │
+      │ D5/GPIO14 ────────┼────────────┤ SCK              │
+      │ D7/GPIO13 ────────┼────────────┤ SDA (MOSI)       │
+      │ D0/GPIO16 ────────┼────────────┤ RES              │
+      │ D2/GPIO4  ────────┼────────────┤ DC               │
+      │ D1/GPIO5  ────────┼────────────┤ CS               │
+      └───────────────────┘            └──────────────────┘
+
+        ESP8266 (NodeMCU)                OLED SSD1306 I2C
+      ┌───────────────────┐            ┌──────────────────┐
+      │ 3V3 ──────────────┼────────────┤ VCC              │
+      │ GND ──────────────┼────────────┤ GND              │
+      │ D1/GPIO5  ────────┼────────────┤ SCL              │
+      │ D2/GPIO4  ────────┼────────────┤ SDA              │
+      └───────────────────┘            └──────────────────┘
+```
 
 ### 3D-printed case
 
@@ -90,19 +128,6 @@ A simple two-part desktop case lives in [`hardware/`](hardware/):
 Print both, slot the board + OLED inside, and stand it on your desk. It is
 designed to hang on a wall facing a known compass heading — set that heading in
 `WALL_HEADING_DEG` so the radar's wall tick lines up.
-
-```
-        ESP8266 (NodeMCU)                OLED SSD1306 SPI
-      ┌───────────────────┐            ┌──────────────────┐
-      │ 3V3 ──────────────┼────────────┤ VCC              │
-      │ GND ──────────────┼────────────┤ GND              │
-      │ D5/GPIO14 ────────┼────────────┤ SCK              │
-      │ D7/GPIO13 ────────┼────────────┤ SDA (MOSI)       │
-      │ D0/GPIO16 ────────┼────────────┤ RES              │
-      │ D2/GPIO4  ────────┼────────────┤ DC               │
-      │ D1/GPIO5  ────────┼────────────┤ CS               │
-      └───────────────────┘            └──────────────────┘
-```
 
 ---
 
@@ -141,6 +166,7 @@ private). Key options:
 | Define | Meaning |
 |--------|---------|
 | `WIFI_SSID` / `WIFI_PASS` | Your network |
+| `OLED_USE_I2C` | Display module type: `false` = 4-wire SPI (7-pin), `true` = I2C (4-pin) |
 | `HOME_LAT` / `HOME_LON` | Your home coordinates (default: Pinerolo) |
 | `SEARCH_RADIUS_DEG` | Half-size of the sky box to query (~1.0° ≈ 111 km) |
 | `UPDATE_INTERVAL_MS` | Poll period for OpenSky |

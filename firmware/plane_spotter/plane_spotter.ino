@@ -2,22 +2,24 @@
  * ESP8266 Plane Spotter
  * --------------------------------------------------------------------------
  * Shows the aircraft currently flying closest to your home on a 0.96" SSD1306
- * SPI OLED, plus a bunch of nerdy statistics. Live ADS-B data is pulled from
+ * OLED, plus a bunch of nerdy statistics. Live ADS-B data is pulled from
  * the free OpenSky Network REST API.
  *
  * Board   : any ESP8266 (NodeMCU v2/v3, Wemos D1 mini, ...)
- * Display : 0.96" OLED 4-wire SPI, SSD1306 128x64 (7 pins:
- *           GND, VCC, SCK, SDA, RES, DC, CS)
+ * Display : 0.96" OLED, SSD1306 128x64, either
+ *           - 4-wire SPI (7 pins: GND, VCC, SCK, SDA, RES, DC, CS), or
+ *           - I2C (4 pins: GND, VCC, SCL, SDA)
+ *           Pick with OLED_USE_I2C in config.h.
  *
- * Wiring (default, see README for the full table):
- *   OLED      ESP8266 (NodeMCU label / GPIO)
- *   GND  -->  GND
- *   VCC  -->  3V3
- *   SCK  -->  D5  / GPIO14   (HW SPI SCLK, fixed)
- *   SDA  -->  D7  / GPIO13   (HW SPI MOSI, fixed)
- *   RES  -->  D0  / GPIO16
- *   DC   -->  D2  / GPIO4
- *   CS   -->  D1  / GPIO5
+ * Wiring (defaults, see README for the full tables):
+ *   SPI OLED  ESP8266                    I2C OLED  ESP8266
+ *   GND  -->  GND                        GND  -->  GND
+ *   VCC  -->  3V3                        VCC  -->  3V3
+ *   SCK  -->  D5 / GPIO14 (HW, fixed)    SCL  -->  D1 / GPIO5
+ *   SDA  -->  D7 / GPIO13 (HW, fixed)    SDA  -->  D2 / GPIO4
+ *   RES  -->  D0 / GPIO16
+ *   DC   -->  D2 / GPIO4
+ *   CS   -->  D1 / GPIO5
  *
  * Libraries (install from the Arduino Library Manager):
  *   - U8g2        by olikraus
@@ -42,15 +44,27 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// Display: SSD1306 128x64, 4-wire hardware SPI.
-// HW SPI uses the fixed ESP8266 pins SCLK=GPIO14 (D5) and MOSI=GPIO13 (D7);
-// only CS / DC / RESET are configurable here.
+// Display: SSD1306 128x64, 4-wire hardware SPI or hardware I2C, selected by
+// OLED_USE_I2C in config.h.
+// SPI: HW SPI uses the fixed ESP8266 pins SCLK=GPIO14 (D5) and MOSI=GPIO13
+//   (D7); only CS / DC / RESET are configurable.
+// I2C: SCL/SDA pins come from config.h (defaults: SCL=GPIO5/D1, SDA=GPIO4/D2,
+//   the ESP8266 standard I2C pins). Most modules answer at address 0x3C,
+//   U8g2's default; if yours is 0x3D, add u8g2.setI2CAddress(0x3D * 2)
+//   before begin().
 // ---------------------------------------------------------------------------
-#define OLED_CS   PIN_OLED_CS
-#define OLED_DC   PIN_OLED_DC
-#define OLED_RST  PIN_OLED_RST
+#ifndef OLED_USE_I2C
+#define OLED_USE_I2C false   // config.h files from before this switch are SPI
+#endif
 
-U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, OLED_CS, OLED_DC, OLED_RST);
+#if OLED_USE_I2C
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE,
+                                         /* clock=*/ PIN_OLED_SCL,
+                                         /* data=*/  PIN_OLED_SDA);
+#else
+U8G2_SSD1306_128X64_NONAME_F_4W_HW_SPI u8g2(U8G2_R0, PIN_OLED_CS, PIN_OLED_DC,
+                                            PIN_OLED_RST);
+#endif
 
 // ---------------------------------------------------------------------------
 // Data model
@@ -610,6 +624,8 @@ void projectLatLon(double lat, double lon, float trackDeg, double distM,
 // Drawing helpers
 // ---------------------------------------------------------------------------
 // Tactical header: title + screen index on the left, NTP clock on the right.
+// The header lives in the top band; on two-color OLEDs (yellow top 16 rows)
+// the body content below is laid out to start at row 16+, in the second color.
 void drawHeader(const char* title) {
   u8g2.setFont(u8g2_font_5x7_tr);
   char left[20];
@@ -788,39 +804,39 @@ void screenNearest() {
 
   if (!nearest.valid) {
     u8g2.setFont(u8g2_font_6x12_tr);
-    u8g2.drawStr(0, 30, "NO TARGET");
-    u8g2.drawStr(0, 44, "in range.");
+    u8g2.drawStr(0, 34, "NO TARGET");
+    u8g2.drawStr(0, 48, "in range.");
     return;
   }
 
   u8g2.setFont(u8g2_font_7x14B_tr);
-  u8g2.drawStr(0, 24, nearest.callsign);
+  u8g2.drawStr(0, 28, nearest.callsign);
 
   // aircraft-type icon, between the callsign and the heading arrow
-  drawTypeIcon(82, 16, effectiveCategory(nearest));
+  drawTypeIcon(82, 22, effectiveCategory(nearest));
 
   u8g2.setFont(u8g2_font_6x12_tr);
   char line[24];
   snprintf(line, sizeof(line), "%.1f km %s", nearest.distanceKm, compass(nearest.bearingDeg));
-  u8g2.drawStr(0, 40, line);
+  u8g2.drawStr(0, 44, line);
 
   if (nearest.onGround) {
-    u8g2.drawStr(0, 54, "on ground");
+    u8g2.drawStr(0, 58, "on ground");
   } else {
     snprintf(line, sizeof(line), "%.0f m / FL%03.0f",
              nearest.altitudeM, nearest.altitudeM * 3.28084 / 100.0);
-    u8g2.drawStr(0, 54, line);
+    u8g2.drawStr(0, 58, line);
   }
 
   // heading arrow + speed on the right
-  drawArrow(110, 34, 11, nearest.trackDeg);
+  drawArrow(110, 38, 11, nearest.trackDeg);
   snprintf(line, sizeof(line), "%.0f", nearest.velocityMs * 3.6); // km/h
   u8g2.setFont(u8g2_font_4x6_tr);
   u8g2.drawStr(98, 56, line);
   u8g2.drawStr(98, 63, "km/h");
 
   // altitude gauge on the far-right column (0..FL400)
-  const int gT = 14, gB = 50;
+  const int gT = 18, gB = 54;
   u8g2.drawFrame(125, gT, 3, gB - gT);
   if (!nearest.onGround) {
     float fl = nearest.altitudeM * 3.28084f / 100.0f;
@@ -837,7 +853,7 @@ void screenDetails() {
 
   if (!nearest.valid) {
     u8g2.setFont(u8g2_font_5x7_tr);
-    u8g2.drawStr(0, 30, "NO INTEL");
+    u8g2.drawStr(0, 34, "NO INTEL");
     return;
   }
 
@@ -845,17 +861,17 @@ void screenDetails() {
   char line[32];
 
   u8g2.setFont(u8g2_font_6x12_tr);
-  u8g2.drawStr(0, 20, nearest.callsign);
+  u8g2.drawStr(0, 24, nearest.callsign);
 
   u8g2.setFont(u8g2_font_5x7_tr);
   snprintf(line, sizeof(line), "LINE %s", haveRoute ? routeInfo.airline : airlineName(nearest.callsign));
-  u8g2.drawStr(0, 31, line);
+  u8g2.drawStr(0, 35, line);
 
   if (haveRoute && routeInfo.haveRoute)
     snprintf(line, sizeof(line), "RTE  %s > %s", routeInfo.dep, routeInfo.arr);
   else
     snprintf(line, sizeof(line), "RTE  unknown");
-  u8g2.drawStr(0, 41, line);
+  u8g2.drawStr(0, 45, line);
 
   if (haveRoute && routeInfo.haveArrPos && nearest.velocityMs > 20) {
     double dk  = haversineKm(nearest.lat, nearest.lon, routeInfo.arrLat, routeInfo.arrLon);
@@ -864,10 +880,10 @@ void screenDetails() {
   } else {
     snprintf(line, sizeof(line), "ETA  --");
   }
-  u8g2.drawStr(0, 51, line);
+  u8g2.drawStr(0, 54, line);
 
   snprintf(line, sizeof(line), "ID %s HDG %03.0f", nearest.icao24, nearest.trackDeg);
-  u8g2.drawStr(0, 61, line);
+  u8g2.drawStr(0, 63, line);
 }
 
 // North-up radar (PPI). Home at the centre, range rings (outer = 120 km), a
@@ -877,7 +893,7 @@ void screenDetails() {
 void screenRadar() {
   drawHeader("RADAR");
 
-  const int cx = 31, cy = 37, R = 23;
+  const int cx = 31, cy = 39, R = 23;
   const float MAX_KM = 120.0f;
   float elapsed = (millis() - lastDataMs) / 1000.0f;   // s since last fetch
 
@@ -948,23 +964,23 @@ void screenRadar() {
   const int px = 62;
   if (!nearest.valid) {
     u8g2.setFont(u8g2_font_5x7_tr);
-    u8g2.drawStr(px, 32, "NO CONTACT");
+    u8g2.drawStr(px, 36, "NO CONTACT");
     return;
   }
 
   int ec = effectiveCategory(nearest);
-  drawTypeIcon(px + 7, 19, ec);
+  drawTypeIcon(px + 7, 23, ec);
   u8g2.setFont(u8g2_font_5x7_tr);
   char tname[12];
   snprintf(tname, sizeof(tname), "%s%s", isEstimatedType(nearest) ? "~" : "", typeName(ec));
-  u8g2.drawStr(px + 18, 20, tname);
-  u8g2.drawStr(px, 32, nearest.callsign);
+  u8g2.drawStr(px + 18, 24, tname);
+  u8g2.drawStr(px, 36, nearest.callsign);
 
   char l[20];
   snprintf(l, sizeof(l), "RNG %.0fkm", nearest.distanceKm);
-  u8g2.drawStr(px, 43, l);
+  u8g2.drawStr(px, 47, l);
   snprintf(l, sizeof(l), "BRG %03.0f %s", nearest.bearingDeg, compass(nearest.bearingDeg));
-  u8g2.drawStr(px, 54, l);
+  u8g2.drawStr(px, 57, l);
 
   u8g2.setFont(u8g2_font_4x6_tr);
   snprintf(l, sizeof(l), "%u CONTACTS", blipCount);
@@ -1020,7 +1036,7 @@ void screenSystem() {
   u8g2.setFont(u8g2_font_logisoso16_tn);
   int w = u8g2.getStrWidth(clk);
   int x0 = 4;
-  u8g2.drawStr(x0, 30, clk);
+  u8g2.drawStr(x0, 34, clk);
 
   // fast-updating milliseconds
   struct timeval tv;
@@ -1028,7 +1044,7 @@ void screenSystem() {
   char msb[6];
   snprintf(msb, sizeof(msb), ".%03d", (int)(tv.tv_usec / 1000));
   u8g2.setFont(u8g2_font_6x12_tr);
-  u8g2.drawStr(x0 + w + 2, 30, msb);
+  u8g2.drawStr(x0 + w + 2, 34, msb);
 
   // date
   u8g2.setFont(u8g2_font_5x7_tr);
@@ -1041,21 +1057,21 @@ void screenSystem() {
   } else {
     strcpy(dl, "SYNCING NTP...");
   }
-  u8g2.drawStr(2, 42, dl);
+  u8g2.drawStr(2, 46, dl);
 
   // uptime + target count
   uint32_t up = millis() / 1000;
   char l[30];
   snprintf(l, sizeof(l), "UP %02lu:%02lu:%02lu   TGT %u",
            up / 3600, (up % 3600) / 60, up % 60, stats.inView);
-  u8g2.drawStr(2, 52, l);
+  u8g2.drawStr(2, 55, l);
 
   // link status: signal bars + details
-  drawSignalBars(2, 62, WiFi.RSSI());
+  drawSignalBars(2, 63, WiFi.RSSI());
   u8g2.setFont(u8g2_font_4x6_tr);
   snprintf(l, sizeof(l), "%ddBm RAM%dk REQ%lu/%lu",
            WiFi.RSSI(), ESP.getFreeHeap() / 1024, stats.requestsOk, stats.requestsFail);
-  u8g2.drawStr(18, 62, l);
+  u8g2.drawStr(18, 63, l);
 }
 
 void render() {
@@ -1075,6 +1091,11 @@ void render() {
 // ---------------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
+#if OLED_USE_I2C
+  u8g2.setBusClock(400000);   // 400 kHz I2C: a full frame in ~25 ms, needed
+                              // for the ~30 fps radar sweep (100 kHz manages
+                              // only ~10 fps). SSD1306 modules handle it fine.
+#endif
   u8g2.begin();
   u8g2.setContrast(180);
 
