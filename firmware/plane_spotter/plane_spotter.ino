@@ -36,6 +36,9 @@
 #include <math.h>
 #include <time.h>
 #include <sys/time.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
 
 #include "config.h"
 
@@ -200,6 +203,24 @@ void connectWiFi() {
   }
   Serial.printf("\n[wifi] connected SSID=%s IP=%s RSSI=%d\n",
                 WIFI_SSID, WiFi.localIP().toString().c_str(), WiFi.RSSI());
+}
+
+// ---------------------------------------------------------------------------
+// Initialize OTA
+// ---------------------------------------------------------------------------
+void initOTA() {
+	ArduinoOTA.setPassword( OTA_PASS );
+	ArduinoOTA.setHostname( OTA_NAME );
+
+	ArduinoOTA.onStart([](){
+		if (ArduinoOTA.getCommand() == U_FLASH) {
+			// updating the code here. One could e.g. display a progress bar 
+		} else {  // U_FS
+			// updating the file system here. Unmount the FS here
+		}
+	});
+
+	ArduinoOTA.begin();
 }
 
 // ---------------------------------------------------------------------------
@@ -1114,6 +1135,13 @@ void setup() {
   // NTP time (timezone from config). Non-blocking; screens show --:-- until set.
   configTime(TIMEZONE, "pool.ntp.org", "time.google.com");
 
+  // initialize OTA.
+  // - Remember your firewall at the PC!!!
+  //   The embedded device broadcasts via bonjour on TCP port 8266.
+  //   The Arduino IDE selects a random TCP port to communicate back!
+  //   Best to just turn FW off during OTA...
+  // - Set your memory layout so you have enough space for OTA -- Usually you don't need a FS
+  initOTA();
   nearest.valid = false;
 }
 
@@ -1141,5 +1169,6 @@ void loop() {
   }
 
   render();
+  ArduinoOTA.handle();  // Serve OTA
   delay(33);   // ~30 fps: smooth radar sweep + fast-ticking clock
 }
