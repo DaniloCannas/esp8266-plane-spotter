@@ -51,6 +51,12 @@
 #define OPENSKY_CLIENT_ID      ""
 #define OPENSKY_CLIENT_SECRET  ""
 
+// ---- OTA config ------------------------------------------------------------
+// Turn off the firewall at your PC running the Arduino IDE when doing an OTA
+// SW update -- the client communicates on a random port back to the PC!
+#define OTA_NAME   "ESP8266-PlaneSpotter"  // Hostname broadcasted for OTA
+#define OTA_PASS   "OTAPass"               // password for OTA
+
 // ---- OLED display ----------------------------------------------------------
 // Two SSD1306 128x64 module types are supported; pick yours:
 //   false = 7-pin 4-wire SPI module (GND VCC SCK SDA RES DC CS)
