@@ -894,7 +894,7 @@ void screenRadar() {
   drawHeader("RADAR");
 
   const int cx = 31, cy = 39, R = 23;
-  const float MAX_KM = 120.0f;
+  const float MAX_KM = SEARCH_RADIUS_DEG * 111.0f;
   float elapsed = (millis() - lastDataMs) / 1000.0f;   // s since last fetch
 
   // rings + axes
